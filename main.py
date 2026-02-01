@@ -77,7 +77,7 @@ app = FastAPI(title="DiabeTwin AI Backend", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["v0-frontend-ai-one.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
