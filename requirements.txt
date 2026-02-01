@@ -2,7 +2,7 @@ fastapi==0.115.0
 uvicorn==0.30.6
 joblib==1.4.2
 pandas==2.2.2
-scikit-learn==1.2.2
+scikit-learn==1.8.0
 lightgbm
 shap==0.46.0
 google-genai==0.3.0
