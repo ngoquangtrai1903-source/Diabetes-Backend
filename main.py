@@ -140,21 +140,21 @@ def generate_fallback_advice(prob: float, impacts: list, role: str, raw_data: di
     # Khuyến nghị dựa trên risk level
     if prob > 0.7:
         advice += """
-1. **Khẩn cấp:** Cần gặp bác sĩ chuyên khoa tiểu đường trong vòng 1 tuần
-2. **Kiểm tra:** Xét nghiệm HbA1c và đường huyết đói ngay
-3. **Lối sống:** Bắt đầu chế độ ăn kiêng ít đường, tăng vận động ngay lập tức
+1. Khẩn cấp: Cần gặp bác sĩ chuyên khoa tiểu đường trong vòng 1 tuần
+2. Kiểm tra: Xét nghiệm HbA1c và đường huyết đói ngay
+3. Lối sống: Bắt đầu chế độ ăn kiêng ít đường, tăng vận động ngay lập tức
 """
     elif prob > 0.4:
         advice += """
-1. **Theo dõi:** Đặt lịch khám sức khỏe định kỳ 3-6 tháng/lần
-2. **Phòng ngừa:** Điều chỉnh chế độ ăn, tăng vận động 30 phút/ngày
-3. **Kiểm tra:** Theo dõi các chỉ số sức khỏe tại nhà
+1. Theo dõi: Đặt lịch khám sức khỏe định kỳ 3-6 tháng/lần
+2. Phòng ngừa: Điều chỉnh chế độ ăn, tăng vận động 30 phút/ngày
+3. Kiểm tra: Theo dõi các chỉ số sức khỏe tại nhà
 """
     else:
         advice += """
-1. **Duy trì:** Tiếp tục lối sống lành mạnh hiện tại
-2. **Kiểm tra:** Khám sức khỏe định kỳ hàng năm
-3. **Phòng ngừa:** Giữ cân nặng ổn định, vận động đều đặn
+1. Duy trì: Tiếp tục lối sống lành mạnh hiện tại
+2. Kiểm tra: Khám sức khỏe định kỳ hàng năm
+3. Phòng ngừa: Giữ cân nặng ổn định, vận động đều đặn
 """
 
     advice += "\n\n⚠️ *Lưu ý: Kết quả chỉ mang tính tham khảo. Vui lòng tham khảo ý kiến bác sĩ chuyên khoa.*"
@@ -166,34 +166,78 @@ async def get_gemini_advice(prob: float, impacts: list, role: str, raw_data: dic
     # 1. Tạo bối cảnh dựa trên Role
     if role == "Bác sĩ":
         context = """Bạn là một chuyên gia nội tiết hỗ trợ bác sĩ. 
-        Hãy phân tích dữ liệu lâm sàng dưới góc độ chuyên môn y khoa, sử dụng thuật ngữ y học."""
-        requirement = "Hãy đưa ra nhận định chuyên môn ngắn gọn nhất có thể, lưu ý các chỉ số nguy hiểm và gợi ý hướng điều trị/xét nghiệm tiếp theo."
-    else:
-        context = """Bạn là một bác sĩ gia đình ảo thân thiện. 
-        Hãy giải thích kết quả sàng lọc cho người dùng bình thường bằng ngôn ngữ dễ hiểu, gần gũi."""
-        requirement = "Hãy giải thích các chỉ số một cách đơn giản và đưa ra 3-4 lời khuyên thay đổi lối sống, thực đơn ăn uống cụ thể."
+            Hãy phân tích dữ liệu lâm sàng dưới góc độ chuyên môn y khoa."""
 
-    # 2. Xây dựng Prompt tổng hợp
+        requirement = """
+            Hãy trả lời theo CHÍNH XÁC format sau (mỗi mục trên 1 dòng):
+
+    **Đánh giá nguy cơ**
+    - [Nhận định về mức độ nguy cơ]
+    - [Giải thích về các chỉ số quan trọng]
+
+    **Khuyến nghị lâm sàng**
+    - [Xét nghiệm cần làm thêm]
+    - [Hướng điều trị đề xuất]
+    - [Theo dõi cần thiết]
+
+    **Lưu ý đặc biệt**
+    - [Các chỉ số cần chú ý khẩn cấp nếu có]
+            """
+    else:
+        context = """Bạn là Bác sĩ gia đình hỗ trợ người dùng tại nhà. 
+Hãy giải thích kết quả dự đoán tiểu đường một cách dễ hiểu, gần gũi và đầy đủ định lượng."""
+
+        requirement = f"""
+        Hãy trả lời theo CHÍNH XÁC format sau (mỗi mục trên 1 dòng):
+
+**Đánh giá sức khỏe**
+- [Nhận định nguy cơ dựa trên xác suất]
+- [Giải thích ý nghĩa các chỉ số ảnh hưởng chính đến dự đoán]
+
+**Lời khuyên hành động (Cụ thể số liệu)**
+- [Chế độ ăn: Ăn gì, bỏ gì, định lượng gram/bữa thế nào?]
+- [Vận động: Tập môn gì, bao nhiêu phút/ngày, bao nhiêu ngày/tuần?]
+- [Mục tiêu: Cần giảm bao nhiêu kg, đưa chỉ số về mức bao nhiêu?]
+
+**Lưu ý quan trọng**
+- [Dấu hiệu cần đi khám ngay hoặc lời nhắc tái khám]
+
+# QUY TẮC CỐ ĐỊNH
+1. KHÔNG chào hỏi xã giao. Bắt đầu ngay bằng phần Đánh giá.
+2. Mọi lời khuyên PHẢI gắn liền với con số cụ thể của bệnh nhân (BMI, Glucose...).
+3. Ít nhất 9-10 gợi ý chi tiết chia đều cho các mục.
+                """
+
     prompt = f"""
     {context}
 
-    **Kết quả dự đoán:**
-    - Nguy cơ: {prob * 100:.1f}%
-    - Các yếu tố ảnh hưởng (SHAP): {impacts}
-    - Dữ liệu chi tiết: {raw_data}
+    **Dữ liệu bệnh nhân:**
+    - Nguy cơ tiểu đường: {prob * 100:.1f}%
+    - Các yếu tố ảnh hưởng chính: {impacts}
+    - Thông tin chi tiết: {raw_data}
 
-    **Yêu cầu:**
+    **YÊU CẦU QUAN TRỌNG:**
     {requirement}
 
-    Trả lời bằng tiếng Việt, định dạng Markdown rõ ràng.
+    CHÚ Ý: 
+    - Mỗi gợi ý phải là 1 câu hoàn chỉnh, cụ thể, có thể thực hiện được
+    - Sử dụng dấu - ở đầu mỗi dòng
+    - KHÔNG thêm số thứ tự, KHÔNG thêm header phức tạp
+    - Trả lời bằng tiếng Việt
     """
 
     try:
-        # Gọi Gemini API (giữ nguyên logic đã chạy OK của bạn)
+
         response = GEMINI_CLIENT.models.generate_content(
             model=GEMINI_MODEL_ID,
             contents=prompt
         )
+        print("=" * 50, flush=True)
+        print("GEMINI RESPONSE:", flush=True)
+        print("=" * 50, flush=True)
+        print(response.candidates[0].content.parts[0].text, flush=True)
+        print("=" * 50, flush=True)
+
         return response.candidates[0].content.parts[0].text
     except Exception as e:
         logger.error(f"Error: {e}")
