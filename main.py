@@ -233,11 +233,6 @@ Hãy giải thích kết quả dự đoán tiểu đường một cách dễ hi�
             model=GEMINI_MODEL_ID,
             contents=prompt
         )
-        print("=" * 50, flush=True)
-        print("GEMINI RESPONSE:", flush=True)
-        print("=" * 50, flush=True)
-        print(response.candidates[0].content.parts[0].text, flush=True)
-        print("=" * 50, flush=True)
 
         return response.candidates[0].content.parts[0].text
     except Exception as e:
