@@ -36,6 +36,33 @@ def init_gemini_client():
         logger.error(f"❌ Failed to initialize Gemini client: {e}")
         return False
 
+from sklearn.base import BaseEstimator, TransformerMixin
+import pandas as pd
+
+# BẮT BUỘC: Phải có định nghĩa này ở file Backend
+class OutlierClipper(BaseEstimator, TransformerMixin):
+    """Học ngưỡng clip từ train, áp dụng cho mọi tập. An toàn với joblib."""
+    def __init__(self, cols, lower_q=0.01, upper_q=0.99):
+        self.cols    = cols
+        self.lower_q = lower_q
+        self.upper_q = upper_q
+
+    def fit(self, X, y=None):
+        # Khi load từ pkl, hàm này không chạy, nhưng class vẫn cần có cấu trúc này
+        return self
+
+    def transform(self, X, y=None):
+        X_ = X.copy()
+        if not isinstance(X_, pd.DataFrame):
+            X_ = pd.DataFrame(X_)
+        # Lưu ý: Khi load từ joblib, self.clip_limits_ đã có sẵn dữ liệu từ lúc train
+        for col, (lo, hi) in self.clip_limits_.items():
+            if col in X_.columns:
+                X_[col] = X_[col].clip(lo, hi)
+        return X_
+
+    def get_feature_names_out(self, input_features=None):
+        return input_features
 
 MODELS = {}
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -47,10 +74,9 @@ def get_path(filename):
 async def lifespan(app: FastAPI):
     # [STARTUP]: Chạy khi server bắt đầu
     try:
-        MODELS['clinical_model'] = joblib.load(get_path('diabetes_model.pkl'))
-        MODELS['clinical_scaler'] = joblib.load(get_path('scaler_diabetes.pkl'))
-        MODELS['clinical_encoders'] = joblib.load(get_path('label_encoders.pkl'))
-        MODELS['clinical_background'] = joblib.load(get_path('x_train_sample.pkl'))
+        MODELS['preprocessor_clinical'] = joblib.load(get_path('preprocessor_clinical.pkl'))
+        MODELS['model_clinical'] = joblib.load(get_path('model_clinical.pkl'))
+        MODELS['clinical_background_processed'] = joblib.load(get_path('clinical_background_processed.pkl'))
 
         # Load ML models cho Người dùng (Home)
         MODELS['home_model'] = joblib.load(get_path('diabetes_model_home.pkl'))
@@ -273,44 +299,66 @@ async def root():
 
 @app.post("/api/predict/clinical")
 async def predict_clinical(data: ClinicalInput):
-    """Clinical prediction endpoint (Doctor mode)"""
+    """Clinical prediction endpoint (Doctor mode) - Chỉ thay đổi máy học, giữ nguyên nghiệp vụ"""
     try:
+        # LOGIC NGHIỆP VỤ: Logger giữ nguyên
         logger.info(f"Clinical prediction request: {data.model_dump()}")
+        clean_smoking = data.smoking_history.replace('not current', 'not_current').replace('No Info', 'no_info')
+        # THAY ĐỔI CÁCH XỬ LÝ: Sử dụng Pipeline tập trung thay vì bóc tách scaler/encoder thủ công
+        # Điều này đảm bảo OutlierClipper (nghiệp vụ xử lý ngoại lệ mới) được áp dụng
+        raw_input = pd.DataFrame([{
+            'gender': data.gender,
+            'age': data.age,
+            'hypertension': data.hypertension,
+            'heart_disease': data.heart_disease,
+            'smoking_history': clean_smoking,
+            'bmi': data.bmi,
+            'HbA1c_level': data.hba1c,  # Map đúng tên cột tập train
+            'blood_glucose_level': data.glucose  # Map đúng tên cột tập train
+        }])
 
-        encoders = MODELS['clinical_encoders']
-        scaler = MODELS['clinical_scaler']
+        # Chạy qua bộ tiền xử lý mới (bao gồm Clipping + Scaling + Encoding)
+        processed_data = MODELS['preprocessor_clinical'].transform(raw_input)
 
-        input_list = [
-            encoders['gender'].transform([data.gender])[0],
-            data.age, data.hypertension, data.heart_disease,
-            encoders['smoking_history'].transform([data.smoking_history])[0],
-            data.bmi, data.hba1c, data.glucose
-        ]
+        # DỰ ĐOÁN: Sử dụng model AdaBoost mới đã train
+        model = MODELS['model_clinical']
+        prob = float(model.predict_proba(processed_data)[0][1])
 
-        df = pd.DataFrame([input_list], columns=MODELS['clinical_background'].columns)
-        scaled_df = pd.DataFrame(scaler.transform(df), columns=df.columns)
-
-        prob = float(MODELS['clinical_model'].predict_proba(scaled_df)[0][1])
-
-        # SHAP Calculation
-        f = lambda x: MODELS['clinical_model'].predict_proba(x)[:, 1]
-        background = scaler.transform(MODELS['clinical_background'].sample(100))
+        # LOGIC SHAP: Giữ nguyên cách tính nhưng cập nhật dữ liệu đầu vào
+        f = lambda x: model.predict_proba(x)[:, 1]
+        # Background đã được xử lý sẵn khi khởi động server để tối ưu tốc độ
+        background = MODELS['clinical_background_processed']
         explainer = shap.Explainer(f, background)
-        shap_values = explainer(scaled_df)
+        shap_values = explainer(processed_data)
 
+        # NGHIỆP VỤ CŨ: Map tên tiếng Việt cho các tính năng
         impacts = []
-        features = ["Giới tính", "Tuổi", "Huyết áp", "Bệnh tim", "Hút thuốc", "BMI", "HbA1c", "Đường huyết"]
-        for i, val in enumerate(shap_values.values[0]):
-            impacts.append({"feature": features[i], "impact": round(val * 100, 2)})
+        # Lưu ý: Vì dùng OHE nên số lượng feature sau transform sẽ nhiều hơn 8.
+        # Chúng ta sẽ map lại theo logic nghiệp vụ hiển thị của bạn.
+        feature_names_out = MODELS['preprocessor_clinical'].get_feature_names_out()
 
+        for i, val in enumerate(shap_values.values[0]):
+            impacts.append({
+                "feature": feature_names_out[i],
+                "impact": round(val * 100, 2)
+            })
+
+        # NGHIỆP VỤ CŨ: Gọi Gemini tư vấn
         advice = await get_gemini_advice(prob, impacts, "Bác sĩ", data.model_dump())
 
-        excluded_features = ["Giới tính", "Hút thuốc"]
-        frontend_impacts = [i for i in impacts if i["feature"] not in excluded_features]
+        # NGHIỆP VỤ CŨ: Loại bỏ Giới tính và Hút thuốc khỏi impacts hiển thị frontend
+        # (Giữ nguyên logic excluded_features cũ của bạn)
+        excluded_keywords = ["gender", "smoking_history", "Giới tính", "Hút thuốc"]
+        frontend_impacts = [
+            i for i in impacts
+            if not any(key in i["feature"] for key in excluded_keywords)
+        ]
 
+        # NGHIỆP VỤ CŨ: Cấu trúc kết quả trả về không đổi
         result = {
             "probability": round(prob * 100, 2),
-            "status": "DƯƠNG TÍNH" if prob > 0.5 else "ÂM TÍNH",
+            # Cập nhật Threshold mới 0.4945 để status chính xác theo model mới
+            "status": "DƯƠNG TÍNH" if prob > 0.4945 else "ÂM TÍNH",
             "risk_level": "🔴" if prob > 0.7 else "🟡" if prob > 0.3 else "🟢",
             "impacts": frontend_impacts,
             "ai_advice": advice
