@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 import logging
 import os
 from dotenv import load_dotenv
+from transformers import OutlierClipper
 load_dotenv(override=True)
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -35,34 +36,6 @@ def init_gemini_client():
     except Exception as e:
         logger.error(f"❌ Failed to initialize Gemini client: {e}")
         return False
-
-from sklearn.base import BaseEstimator, TransformerMixin
-import pandas as pd
-
-# BẮT BUỘC: Phải có định nghĩa này ở file Backend
-class OutlierClipper(BaseEstimator, TransformerMixin):
-    """Học ngưỡng clip từ train, áp dụng cho mọi tập. An toàn với joblib."""
-    def __init__(self, cols, lower_q=0.01, upper_q=0.99):
-        self.cols    = cols
-        self.lower_q = lower_q
-        self.upper_q = upper_q
-
-    def fit(self, X, y=None):
-        # Khi load từ pkl, hàm này không chạy, nhưng class vẫn cần có cấu trúc này
-        return self
-
-    def transform(self, X, y=None):
-        X_ = X.copy()
-        if not isinstance(X_, pd.DataFrame):
-            X_ = pd.DataFrame(X_)
-        # Lưu ý: Khi load từ joblib, self.clip_limits_ đã có sẵn dữ liệu từ lúc train
-        for col, (lo, hi) in self.clip_limits_.items():
-            if col in X_.columns:
-                X_[col] = X_[col].clip(lo, hi)
-        return X_
-
-    def get_feature_names_out(self, input_features=None):
-        return input_features
 
 MODELS = {}
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
