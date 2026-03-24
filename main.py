@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
 FIREBASE_SERVICE_ACCOUNT_PATH: str = os.getenv(
-    "FIREBASE_SERVICE_ACCOUNT_PATH", "service-account.json"
+    "FIREBASE_CONFIG_JSON", "service-account.json"
 )
 PROJECT_ID: str = os.getenv("PROJECT_ID", "medical-database-1da52")
 
