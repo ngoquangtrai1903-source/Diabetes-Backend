@@ -116,15 +116,23 @@ class RAGService:
 
     def _init_firestore(self) -> bool:
         try:
+            import json
             from google.cloud import firestore
             from google.oauth2 import service_account
 
-            if not os.path.exists(FIREBASE_SERVICE_ACCOUNT_PATH):
-                logger.error(f"❌ Không tìm thấy service account: {FIREBASE_SERVICE_ACCOUNT_PATH}")
+            raw = FIREBASE_SERVICE_ACCOUNT_PATH  # tên biến giữ nguyên
+
+            # Nếu giá trị env var là JSON string thì parse trực tiếp
+            if raw.strip().startswith("{"):
+                info = json.loads(raw)
+                cred = service_account.Credentials.from_service_account_info(info)
+            # Ngược lại coi như đường dẫn file
+            elif os.path.exists(raw):
+                cred = service_account.Credentials.from_service_account_file(raw)
+            else:
+                logger.error(f"❌ Không tìm thấy service account: {raw}")
                 return False
-            cred = service_account.Credentials.from_service_account_file(
-                FIREBASE_SERVICE_ACCOUNT_PATH
-            )
+
             self._db = firestore.Client(credentials=cred, project=PROJECT_ID)
             logger.info("✅ Firestore client initialized.")
             return True
